@@ -1,0 +1,209 @@
+//ESP8266 - RFID, LCD, SPREADSHEET
+//Hardware:  I2C Display, ESP8266,  MFRC522-RFID scanner, Jumper wires, and Breadboard
+//Date Edited: January  29, 2026
+//DAPHNE EUNICE U. ACENA. If issues persist, catch me up at daphneuniceacena@gmail.com
+
+#include <ESP8266WiFi.h>
+#include <SPI.h>
+#include <MFRC522.h>
+#include <HTTPSRedirect.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+
+//For Wifi and Google Sheets Gscript
+
+
+const char* ssid = "Hello, I am Daphne!";
+const char* password = "daphneacena";
+
+
+const char* GScriptURL = "https://script.google.com/macros/s/AKfycbygd75mqj2R30xvomTTCHCvRq3_SP6ZsBykv0B3Hk3yyLTmekdbJr1-uwfPDSxXcN1m/exec";
+const char* host = "script.google.com";
+const int httpsPort = 443;
+
+
+String payload_base = "{\"sheet_name\":\"Sheet1\",\"values\":\"";
+String payload = "";
+
+
+HTTPSRedirect* client = nullptr;
+
+
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+
+//For RFID Scanner
+
+
+#define SS_PIN D4
+#define RST_PIN D3
+MFRC522 mfrc522(SS_PIN, RST_PIN);
+
+
+
+
+#define BUZZER D0
+
+
+//Other ESP Communication
+#define RFID_STOP_DURATION 3000  // ms robot stops after scanning
+
+
+
+
+byte Name1[4] = {0xA3,0x09,0x6C,0x21}; // WHEAT
+byte Name2[4] = {0xA3,0x93,0x82,0x22}; // BROCCOLI
+byte Name3[4] = {0x29,0x15,0xBB,0x03}; // PECHAY
+byte Name4[4] = {0x45,0xC8,0xB8,0x03}; // CUCUMBER
+
+
+int scanned[4] = {0,0,0,0};
+int currentIndex = 0;
+
+
+String scientific = "";
+String commonName = "";
+
+
+
+
+void setup() {
+  Serial.begin(9600);  // Hardware TX/RX to ESP
+
+
+  SPI.begin();
+  mfrc522.PCD_Init();
+
+
+  pinMode(BUZZER, OUTPUT);
+
+
+  lcd.init();
+  lcd.backlight();
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Connecting WiFi");
+
+
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+
+  lcd.clear();
+  lcd.print("WiFi Connected");
+
+
+  client = new HTTPSRedirect(httpsPort);
+  client->setInsecure();
+  client->setPrintResponseBody(true);
+  client->setContentTypeHeader("application/json");
+  client->connect(host, httpsPort);
+
+
+  delay(2000);
+  lcd.clear();
+  lcd.print("Scan your plant");
+}
+
+
+void loop() {
+  if (!mfrc522.PICC_IsNewCardPresent()) return;
+  if (!mfrc522.PICC_ReadCardSerial()) return;
+
+
+
+
+  if (!memcmp(mfrc522.uid.uidByte, Name1, 4)) {
+    scientific = "Triticum aestivum";
+    commonName = "WHEAT";
+    currentIndex = 0;
+  }
+  else if (!memcmp(mfrc522.uid.uidByte, Name2, 4)) {
+    scientific = "Brassica oleracea var. italica";
+    commonName = "BROCCOLI";
+    currentIndex = 1;
+  }
+  else if (!memcmp(mfrc522.uid.uidByte, Name3, 4)) {
+    scientific = "Brassica rapa var. chinensis";
+    commonName = "PECHAY";
+    currentIndex = 2;
+  }
+  else if (!memcmp(mfrc522.uid.uidByte, Name4, 4)) {
+    scientific = "Cucumis sativus";
+    commonName = "CUCUMBER";
+    currentIndex = 3;
+  }
+  else {
+    displayBuzzerStatus("Unknown card", 1000, 300);
+    sendStopCommand();  // Stop robot even for unknown card
+    return;
+  }
+
+
+ 
+  if (scanned[currentIndex] == 1) {
+    displayBuzzerStatus("Already scanned", 800, 200);
+    sendStopCommand();
+  }
+  else {
+    scanned[currentIndex] = 1;
+    payload = payload_base + scientific + "," + commonName + "\"}";
+
+
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print(commonName);
+    lcd.setCursor(0,1);
+    lcd.print(scientific);
+
+
+    // New scan beep
+    tone(BUZZER, 1200, 150);
+
+
+    // Stop robot
+    sendStopCommand();
+
+
+    // Send to Google Sheets
+    if (client->POST(GScriptURL, host, payload)) {
+      Serial.println("Upload Success");
+    } else {
+      lcd.clear();
+      lcd.print("Upload failed");
+      tone(BUZZER, 400, 500);
+      Serial.println("Upload Failed");
+    }
+  }
+
+
+  lcd.clear();
+  lcd.print("Scan your plant");
+}
+
+
+
+
+void displayBuzzerStatus(String msg, int freq, int dur) {
+  lcd.clear();
+  lcd.print(msg);
+  tone(BUZZER, freq, dur);
+  delay(2000);
+  lcd.clear();
+  lcd.print("Scan your plant");
+}
+
+
+
+
+void sendStopCommand() {
+  Serial.println("STOP");  // send STOP to Arduino
+  delay(RFID_STOP_DURATION);  // keep robot stopped
+  Serial.println("GO");      // resume movement
+}
+
+
