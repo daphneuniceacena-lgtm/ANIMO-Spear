@@ -1,0 +1,116 @@
+
+const int motorRPin1   = 2;
+const int motorRPin2   = 4;
+const int motorREnable = 3;
+
+const int motorLPin1   = 5;
+const int motorLPin2   = 7;
+const int motorLEnable = 6;
+
+
+// Added 3 extra pins (e.g., 10, 11, 12) to make a total of 11
+const int irPins[11] = {13, A0, A2, A3, A4, A5, 9, 8, 10, 11, 12};
+int irSensors = 0; // Using int (16-bit) to accommodate 11 bits
+
+
+int motorLSpeed = 255;
+int motorRSpeed = 255;
+int error       = 140;
+
+void setup() {
+  Serial.begin(9600);
+
+  pinMode(motorLPin1, OUTPUT);
+  pinMode(motorLPin2, OUTPUT);
+  pinMode(motorLEnable, OUTPUT);
+
+  pinMode(motorRPin1, OUTPUT);
+  pinMode(motorRPin2, OUTPUT);
+  pinMode(motorREnable, OUTPUT);
+
+  for (int i = 0; i < 11; i++) {
+    pinMode(irPins[i], INPUT);
+  }
+}
+
+void loop() {
+  scanD();
+  check();
+}
+
+/**
+ * Reads 11 sensors and builds the bitmask
+ */
+void scanD() {
+  irSensors = 0; // Clear previous readings
+  for (byte count = 0; count < 11; count++) {
+    // Reads pins and shifts them into the irSensors integer
+    if (!digitalRead(irPins[count])) {
+      bitSet(irSensors, count);
+    }
+  }
+}
+
+/**
+ * Decision matrix
+ * Note: With 11 bits, binary literals look like: 0B0000011111111111
+ */
+
+ 
+void check() {
+  // Logic: If the middle bits (5, 6) are active, go straight.
+  // If high bits (left side) are active, turn. If low bits (right side), turn.
+  
+  if (irSensors == 0) {
+    rightS(); // Default behavior for white paper
+  } 
+  else if (irSensors == 0B11111111111) {
+    go(); // All sensors on line
+  }
+  // Check center sensors (approx bits 4, 5, 6 for an 11-set)
+  else if ((irSensors & 0B00001110000) > 0) {
+    go();
+  }
+  // Check left-side sensors (bits 7-10)
+  else if (irSensors > 0B00001111111) {
+    rightS();
+  }
+  // Check right-side sensors (bits 0-3)
+  else {
+    leftS();
+  }
+}
+
+
+void rightS() {
+  Serial.println("Action: Right Spin");
+  analogWrite(motorREnable, motorRSpeed);
+  digitalWrite(motorRPin1, HIGH);
+  digitalWrite(motorRPin2, LOW);
+
+  analogWrite(motorLEnable, motorLSpeed - error);
+  digitalWrite(motorLPin1, LOW);
+  digitalWrite(motorLPin2, HIGH);
+}
+
+void leftS() {
+  Serial.println("Action: Left Spin");
+  analogWrite(motorREnable, motorRSpeed - error);
+  digitalWrite(motorRPin1, LOW);
+  digitalWrite(motorRPin2, HIGH);
+
+  analogWrite(motorLEnable, motorLSpeed);
+  digitalWrite(motorLPin1, HIGH);
+  digitalWrite(motorLPin2, LOW);
+}
+
+void go() {
+  Serial.println("Action: Forward");
+  analogWrite(motorREnable, motorRSpeed);
+  digitalWrite(motorRPin1, HIGH);
+  digitalWrite(motorRPin2, LOW);
+
+  analogWrite(motorLEnable, motorLSpeed);
+  digitalWrite(motorLPin1, HIGH);
+  digitalWrite(motorLPin2, LOW);
+}
