@@ -1,0 +1,157 @@
+//4WD ROBOT WITH SOIL SENSOR AND ULTRA/SHARP SENSOR
+//Hardware: 4 wheels, TT Motors x 4, Soil Sensor (Metal Probe - DO input), Ultrasonic Sensor, I2C display, L298N Motor Driver, 
+//Date edited: January 29, 2026 
+//DAPHNE EUNICE U. ACENA. If issues persist, catch me up at daphneuniceacena@gmail.com
+
+
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+LiquidCrystal_I2C lcd(0x27,16,2);
+
+#define IN1 D5
+#define IN2 D6
+#define IN3 D7
+#define IN4 D8
+
+
+#define TRIG D4
+#define ECHO D0
+
+
+#define SOIL_DO D3
+
+
+bool stopRobot = false;
+String cmd = "";
+
+
+int ultrasonicThreshold = 20; // cm, distance to obstacle
+
+
+void setup() {
+  Serial.begin(9600);
+
+
+  Wire.begin(D2, D1);
+  lcd.begin(16,2);
+  lcd.backlight();
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("   A.G.R.O");
+
+
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(IN3, OUTPUT);
+  pinMode(IN4, OUTPUT);
+
+
+  pinMode(TRIG, OUTPUT);
+  pinMode(ECHO, INPUT);
+  pinMode(SOIL_DO, INPUT);
+}
+
+
+void loop() {
+  // Read Serial commands
+  if (Serial.available()) {
+    cmd = Serial.readStringUntil('\n');
+    cmd.trim();
+
+
+    if (cmd == "STOP") {
+      stopRobot = true;
+      stopCar();
+      lcd.clear();
+      lcd.setCursor(0,0);
+      lcd.print("STOPPED");
+    }
+    else if (cmd == "GO") {
+      stopRobot = false;
+      lcd.clear();
+      lcd.setCursor(0,0);
+      lcd.print("MOVING");
+    }
+  }
+
+
+  // Read soil sensor
+  int soilVal = digitalRead(SOIL_DO);
+  lcd.setCursor(0,1);
+  if (soilVal == 0) lcd.print("   Soil: Wet");
+  else lcd.print("   Soil: Dry");
+
+
+  // Obstacle avoidance
+  long distance = getUltrasonicDistance();
+
+
+  if (!stopRobot) {
+    if (distance > 0 && distance < ultrasonicThreshold) {
+      stopCar();
+      turnRight();
+      delay(400);
+      stopCar();
+      delay(100);
+    } else {
+      moveForward();
+    }
+  } else {
+    stopCar();
+  }
+
+
+  delay(50);
+}
+
+
+// Motor functions
+void moveForward() {
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, HIGH);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, HIGH);
+}
+
+
+void turnLeft() {
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, HIGH);
+  digitalWrite(IN3, HIGH);
+  digitalWrite(IN4, LOW);
+}
+
+
+void turnRight() {
+  digitalWrite(IN1, HIGH);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, HIGH);
+}
+
+
+void stopCar() {
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, LOW);
+}
+
+
+// Ultrasonic distance function
+long getUltrasonicDistance() {
+  digitalWrite(TRIG, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG, LOW);
+
+
+  long duration = pulseIn(ECHO, HIGH, 30000);
+  long distanceCm = duration * 0.034 / 2;
+  if (distanceCm == 0 || distanceCm > 400) distanceCm = 999;
+  return distanceCm;
+}
+
+
