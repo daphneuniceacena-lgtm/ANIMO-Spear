@@ -1,1 +1,403 @@
 
+//Hardware: ESP8266 (x2), L298N Motor Driver, Soil Sensor (Metal Probe), RFID-Scanner (Mfrc522), Hobby motors (x4), I2C 0x27 Display (x2), Jumper wires, Switch, Ultrasonic Sensor, and SHARP sensor. (Two Li-ion 3.7V)
+//Software: Arduino IDE, Google Sheet App Script (See III for script) 
+//Date edited: January 29, 2026 
+
+
+//First ESP8266: RFID, Display, and I2C display 
+
+#include <ESP8266WiFi.h>
+#include <SPI.h>
+#include <MFRC522.h>
+#include <HTTPSRedirect.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+
+//For Wifi and Google Sheets Gscript
+
+
+const char* ssid = "Hello, I am Daphne!";
+const char* password = "daphneacena";
+
+
+const char* GScriptURL = "https://script.google.com/macros/s/AKfycbygd75mqj2R30xvomTTCHCvRq3_SP6ZsBykv0B3Hk3yyLTmekdbJr1-uwfPDSxXcN1m/exec";
+const char* host = "script.google.com";
+const int httpsPort = 443;
+
+
+String payload_base = "{\"sheet_name\":\"Sheet1\",\"values\":\"";
+String payload = "";
+
+
+HTTPSRedirect* client = nullptr;
+
+
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+
+//For RFID Scanner
+
+
+#define SS_PIN D4
+#define RST_PIN D3
+MFRC522 mfrc522(SS_PIN, RST_PIN);
+
+
+#define BUZZER D0
+
+
+//Other ESP Communication
+#define RFID_STOP_DURATION 3000  // ms robot stops after scanning
+
+
+
+
+byte Name1[4] = {0xA3,0x09,0x6C,0x21}; // WHEAT
+byte Name2[4] = {0xA3,0x93,0x82,0x22}; // BROCCOLI
+byte Name3[4] = {0x29,0x15,0xBB,0x03}; // PECHAY
+byte Name4[4] = {0x45,0xC8,0xB8,0x03}; // CUCUMBER
+
+
+int scanned[4] = {0,0,0,0};
+int currentIndex = 0;
+
+
+String scientific = "";
+String commonName = "";
+
+
+
+
+void setup() {
+  Serial.begin(9600);  // Hardware TX/RX to ESP
+
+
+  SPI.begin();
+  mfrc522.PCD_Init();
+
+
+  pinMode(BUZZER, OUTPUT);
+
+
+  lcd.init();
+  lcd.backlight();
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Connecting WiFi");
+
+
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+
+  lcd.clear();
+  lcd.print("WiFi Connected");
+
+
+  client = new HTTPSRedirect(httpsPort);
+  client->setInsecure();
+  client->setPrintResponseBody(true);
+  client->setContentTypeHeader("application/json");
+  client->connect(host, httpsPort);
+
+
+  delay(2000);
+  lcd.clear();
+  lcd.print("Scan your plant");
+}
+
+
+void loop() {
+  if (!mfrc522.PICC_IsNewCardPresent()) return;
+  if (!mfrc522.PICC_ReadCardSerial()) return;
+
+
+
+
+  if (!memcmp(mfrc522.uid.uidByte, Name1, 4)) {
+    scientific = "Triticum aestivum";
+    commonName = "WHEAT";
+    currentIndex = 0;
+  }
+  else if (!memcmp(mfrc522.uid.uidByte, Name2, 4)) {
+    scientific = "Brassica oleracea var. italica";
+    commonName = "BROCCOLI";
+    currentIndex = 1;
+  }
+  else if (!memcmp(mfrc522.uid.uidByte, Name3, 4)) {
+    scientific = "Brassica rapa var. chinensis";
+    commonName = "PECHAY";
+    currentIndex = 2;
+  }
+  else if (!memcmp(mfrc522.uid.uidByte, Name4, 4)) {
+    scientific = "Cucumis sativus";
+    commonName = "CUCUMBER";
+    currentIndex = 3;
+  }
+  else {
+    displayBuzzerStatus("Unknown card", 1000, 300);
+    sendStopCommand();  // Stop robot even for unknown card
+    return;
+  }
+
+
+ 
+  if (scanned[currentIndex] == 1) {
+    displayBuzzerStatus("Already scanned", 800, 200);
+    sendStopCommand();
+  }
+  else {
+    scanned[currentIndex] = 1;
+    payload = payload_base + scientific + "," + commonName + "\"}";
+
+
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print(commonName);
+    lcd.setCursor(0,1);
+    lcd.print(scientific);
+
+
+    // New scan beep
+    tone(BUZZER, 1200, 150);
+
+
+    // Stop robot
+    sendStopCommand();
+
+
+    // Send to Google Sheets
+    if (client->POST(GScriptURL, host, payload)) {
+      Serial.println("Upload Success");
+    } else {
+      lcd.clear();
+      lcd.print("Upload failed");
+      tone(BUZZER, 400, 500);
+      Serial.println("Upload Failed");
+    }
+  }
+
+
+  lcd.clear();
+  lcd.print("Scan your plant");
+}
+
+
+
+
+void displayBuzzerStatus(String msg, int freq, int dur) {
+  lcd.clear();
+  lcd.print(msg);
+  tone(BUZZER, freq, dur);
+  delay(2000);
+  lcd.clear();
+  lcd.print("Scan your plant");
+}
+
+
+
+
+void sendStopCommand() {
+  Serial.println("STOP");  // send STOP to Arduino
+  delay(RFID_STOP_DURATION);  // keep robot stopped
+  Serial.println("GO");      // resume movement
+}
+
+
+
+//Second ESP8266: Motors, 4 wheels, L298N, Soil sensor, I2C display 
+ 
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+
+LiquidCrystal_I2C lcd(0x27,16,2);
+
+
+#define IN1 D5
+#define IN2 D6
+#define IN3 D7
+#define IN4 D8
+
+
+#define TRIG D4
+#define ECHO D0
+
+
+#define SOIL_DO D3
+
+
+bool stopRobot = false;
+String cmd = "";
+
+
+int ultrasonicThreshold = 20; // cm, distance to obstacle
+
+
+void setup() {
+  Serial.begin(9600);
+
+
+  Wire.begin(D2, D1);
+  lcd.begin(16,2);
+  lcd.backlight();
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("   A.G.R.O");
+
+
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(IN3, OUTPUT);
+  pinMode(IN4, OUTPUT);
+
+
+  pinMode(TRIG, OUTPUT);
+  pinMode(ECHO, INPUT);
+  pinMode(SOIL_DO, INPUT);
+}
+
+
+void loop() {
+  // Read Serial commands
+  if (Serial.available()) {
+    cmd = Serial.readStringUntil('\n');
+    cmd.trim();
+
+
+    if (cmd == "STOP") {
+      stopRobot = true;
+      stopCar();
+      lcd.clear();
+      lcd.setCursor(0,0);
+      lcd.print("STOPPED");
+    }
+    else if (cmd == "GO") {
+      stopRobot = false;
+      lcd.clear();
+      lcd.setCursor(0,0);
+      lcd.print("MOVING");
+    }
+  }
+
+
+  // Read soil sensor
+  int soilVal = digitalRead(SOIL_DO);
+  lcd.setCursor(0,1);
+  if (soilVal == 0) lcd.print("   Soil: Wet");
+  else lcd.print("   Soil: Dry");
+
+
+  // Obstacle avoidance
+  long distance = getUltrasonicDistance();
+
+
+  if (!stopRobot) {
+    if (distance > 0 && distance < ultrasonicThreshold) {
+      stopCar();
+      turnRight();
+      delay(400);
+      stopCar();
+      delay(100);
+    } else {
+      moveForward();
+    }
+  } else {
+    stopCar();
+  }
+
+
+  delay(50);
+}
+
+
+// Motor functions
+void moveForward() {
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, HIGH);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, HIGH);
+}
+
+
+void turnLeft() {
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, HIGH);
+  digitalWrite(IN3, HIGH);
+  digitalWrite(IN4, LOW);
+}
+
+
+void turnRight() {
+  digitalWrite(IN1, HIGH);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, HIGH);
+}
+
+
+void stopCar() {
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, LOW);
+}
+
+
+// Ultrasonic distance function
+long getUltrasonicDistance() {
+  digitalWrite(TRIG, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG, LOW);
+
+
+  long duration = pulseIn(ECHO, HIGH, 30000);
+  long distanceCm = duration * 0.034 / 2;
+  if (distanceCm == 0 || distanceCm > 400) distanceCm = 999;
+  return distanceCm;
+}
+
+
+
+//Google Sheets: App Script [PASTE THIS IN GOOGLE SHEETS:APP SCRIPT] 
+
+var SS = SpreadsheetApp.openById("12zkwg2FythAGPPML2R47BjPgkYAnALGNJa7IitpfEGo");
+var timezone = "Asia/Hong_Kong";
+
+
+function doPost(e) {
+  try {
+    var data = JSON.parse(e.postData.contents);
+    var sheet = SS.getSheetByName(data.sheet_name);
+    var values = data.values.split(",");
+
+
+    var date = Utilities.formatDate(new Date(), timezone, "yyyy/MM/dd");
+    var time = Utilities.formatDate(new Date(), timezone, "HH:mm:ss");
+
+
+    var scientific = values[0];
+    var common = values[1];
+
+
+    // Insert new row at row 3
+    sheet.insertRowBefore(3);
+    sheet.getRange("A3").setValue(date);
+    sheet.getRange("B3").setValue(time);
+    sheet.getRange("C3").setValue(scientific);
+    sheet.getRange("D3").setValue(common);
+
+
+    return ContentService.createTextOutput("Success");
+  } catch(err) {
+    return ContentService.createTextOutput("Error: " + err);
+  }
+}
+
+
