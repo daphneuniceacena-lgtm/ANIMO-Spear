@@ -25,9 +25,13 @@ Whether you are a Junior High School looking to learn or a senior working on you
 
 Find a project that interests you and create your own fork.
 
-# Report Bugs: Open an "Issue" if you find something broken.
+# Report Bugs
 
-# Submit Pull Requests: Contributions to our documentation or codebase are always welcome!
+Open an "Issue" if you find something broken.
+
+# Submit Pull Requests
+
+Contributions to our documentation or codebase are always welcome!
 
 # License
 
